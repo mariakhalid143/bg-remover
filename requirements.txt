@@ -1,4 +1,5 @@
 streamlit
 rembg
 Pillow
+numpy
 onnxruntime
