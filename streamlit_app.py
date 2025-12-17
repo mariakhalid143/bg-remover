@@ -1,88 +1,112 @@
 import streamlit as st
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image, ImageFilter, ImageColor
 from rembg import remove
 import io
-import numpy as np
 
-# --- Page Config ---
-st.set_page_config(page_title="Baka Pro BG Remover + Shadow", layout="wide")
+# --- Page Configuration ---
+st.set_page_config(page_title="Baka Pro Studio BG Remover", layout="wide")
 
-st.title("✂️ Professional BG Remover & Shadow Engine")
-st.markdown("##### High-precision extraction with realistic floor shadows")
+st.title("✂️ Baka Professional Studio Engine")
+st.markdown("##### Subject extraction with dual-layer occlusion and ambient shadows")
 
-# --- Sidebar ---
+# --- Sidebar Controls ---
 with st.sidebar:
     st.header("Baka Digital")
-    uploaded_file = st.file_uploader("Upload Product Photo", type=["png", "jpg", "jpeg"])
+    uploaded_file = st.file_uploader("Upload Product Photo", type=["png", "jpg", "jpeg", "webp"])
     
     st.divider()
-    st.subheader("Shadow Settings")
-    shadow_strength = st.slider("Shadow Opacity", 0, 255, 120, help="Higher = Darker shadow")
-    blur_radius = st.slider("Shadow Softness", 0, 50, 20, help="Higher = Softer edges")
-    offset_y = st.slider("Vertical Offset", -50, 50, 10, help="Adjust shadow distance from object")
+    st.subheader("Shadow Customization")
+    shadow_opacity = st.slider("Shadow Density", 0.1, 1.0, 0.45, 0.05, help="Controls how dark the shadow appears.")
+    shadow_blur = st.slider("Shadow Softness", 5, 80, 40, help="Higher values create a wider, softer spread.")
+    shadow_offset = st.slider("Shadow Position", -20, 40, 5, help="Adjusts vertical placement under the object.")
+    
+    st.divider()
+    st.subheader("Canvas Style")
+    bg_color = st.color_picker("Background Color Preview", "#FFFFFF")
 
-# --- Helper Function for Shadow ---
-def add_floor_shadow(image, opacity, blur, offset):
-    # Ensure image has alpha channel
+# --- Professional Shadow Engine ---
+def create_studio_shadow(image, opacity_factor, blur_val, offset_y):
+    """
+    Creates a dual-layer realistic shadow: 
+    1. Occlusion Shadow (Dark, sharp, close to base)
+    2. Ambient Shadow (Light, soft, wide spread)
+    """
+    #
     image = image.convert("RGBA")
     width, height = image.size
     
-    # Create the shadow layer
-    # We take the alpha channel (the shape) and fill it with black
+    # Create a larger canvas to allow shadow spread without clipping
+    canvas_height = int(height * 1.4)
+    canvas = Image.new("RGBA", (width, canvas_height), (0,0,0,0))
+    
+    # Extract alpha mask of the object
     alpha = image.getchannel('A')
-    shadow = Image.new("RGBA", (width, height), (0, 0, 0, opacity))
-    shadow.putalpha(alpha)
     
-    # 1. Distort the shadow to look like it's on the floor (perspective)
-    # This stretches and flattens the shadow shape
-    shadow = shadow.resize((width, int(height * 0.4)))
+    # --- LAYER 1: AMBIENT SHADOW (The soft spread) ---
+    #
+    ambient_opacity = int(255 * opacity_factor * 0.5)
+    ambient_shadow = Image.new("RGBA", (width, height), (0, 0, 0, ambient_opacity))
+    ambient_shadow.putalpha(alpha)
+    # Squish it horizontally and vertically for floor perspective
+    ambient_shadow = ambient_shadow.resize((int(width * 1.1), int(height * 0.25)))
+    ambient_shadow = ambient_shadow.filter(ImageFilter.GaussianBlur(radius=blur_val))
     
-    # 2. Blur the shadow for realism
-    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=blur))
+    # --- LAYER 2: OCCLUSION SHADOW (The dark contact point) ---
+    #
+    occlusion_opacity = int(255 * opacity_factor)
+    occlusion_shadow = Image.new("RGBA", (width, height), (0, 0, 0, occlusion_opacity))
+    occlusion_shadow.putalpha(alpha)
+    # Very thin sliver at the very bottom
+    occlusion_shadow = occlusion_shadow.resize((width, int(height * 0.08)))
+    occlusion_shadow = occlusion_shadow.filter(ImageFilter.GaussianBlur(radius=blur_val // 5))
+
+    # --- COMPOSITING ---
+    #
+    # Position ambient shadow (centered)
+    canvas.paste(ambient_shadow, (int(-width * 0.05), height - int(height*0.12) + offset_y), ambient_shadow)
     
-    # 3. Composite the shadow and the original image onto a white background
-    # (Or transparent if preferred)
-    canvas = Image.new("RGBA", (width, int(height * 1.3)), (255, 255, 255, 0))
+    # Position occlusion shadow (exactly at base)
+    canvas.paste(occlusion_shadow, (0, height - int(height*0.06) + offset_y), occlusion_shadow)
     
-    # Place shadow first
-    canvas.paste(shadow, (0, height - int(height*0.2) + offset), shadow)
-    
-    # Place original image on top
+    # Position original product on top
     canvas.paste(image, (0, 0), image)
     
     return canvas
 
-# --- Main Logic ---
+# --- Main App Logic ---
 if uploaded_file:
     col1, col2 = st.columns(2)
-    input_image = Image.open(uploaded_file)
     
     with col1:
-        st.subheader("Original")
+        st.subheader("Original Image")
+        input_image = Image.open(uploaded_file)
         st.image(input_image, use_container_width=True)
 
-    with st.spinner("Processing subject and shadow..."):
-        # 1. Remove background
+    with st.spinner("Calculating Studio Shadows..."):
+        # Step 1: Remove Background
         no_bg_img = remove(input_image)
         
-        # 2. Apply the shadow logic
-        final_output = add_floor_shadow(no_bg_img, shadow_strength, blur_radius, offset_y)
+        # Step 2: Generate Dual-Shadow
+        final_result = create_studio_shadow(no_bg_img, shadow_opacity, shadow_blur, shadow_offset)
         
     with col2:
-        st.subheader("Professional Result")
-        st.image(final_output, use_container_width=True)
+        st.subheader("Studio Output")
+        # Preview with selected background color
+        preview_bg = Image.new("RGBA", final_result.size, ImageColor.getrgb(bg_color))
+        preview_combined = Image.alpha_composite(preview_bg, final_result)
+        st.image(preview_combined, use_container_width=True)
         
-        # Prepare for Download
+        # Prepare Transparent Download
         buf = io.BytesIO()
-        final_output.save(buf, format="PNG")
+        final_result.save(buf, format="PNG")
         
         st.download_button(
-            label="💾 Download PNG with Shadow",
+            label="💾 Download Transparent PNG",
             data=buf.getvalue(),
-            file_name="baka_product_shadow.png",
+            file_name="baka_studio_product.png",
             mime="image/png",
             type="primary",
             use_container_width=True
         )
 else:
-    st.info("Upload a product photo to see the shadow engine in action.")
+    st.info("Please upload a product photo to activate the Studio Engine.")
