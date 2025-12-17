@@ -1,89 +1,80 @@
 import streamlit as st
-from PIL import Image, ImageFilter, ImageDraw, ImageOps
-from rembg import remove
+from PIL import Image
 import io
+from google import genai
+from google.genai import types
 
 # --- Page Configuration ---
-st.set_page_config(page_title="Baka Executive Studio", layout="wide")
+st.set_page_config(page_title="Baka AI Studio Re-Renderer", layout="wide")
 
-st.title("🖤 Baka Executive Studio Engine")
-st.markdown("##### Luxury Surface Reflection & Grounding for Premium Products")
+st.title("📸 Baka AI Studio Re-Renderer")
+st.markdown("##### Transform raw photos into high-end luxury ads with natural AI lighting.")
 
-# --- Sidebar Controls ---
+# --- Sidebar ---
 with st.sidebar:
-    st.header("Studio Settings")
+    st.header("Baka Digital")
+    # Using your secret key
+    if "GOOGLE_API_KEY" in st.secrets:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+    else:
+        api_key = st.text_input("Enter Gemini API Key", type="password")
+        
+    st.divider()
     uploaded_file = st.file_uploader("Upload Product Photo", type=["png", "jpg", "jpeg", "webp"])
     
     st.divider()
-    st.subheader("Surface Physics")
-    reflect_strength = st.slider("Reflection Intensity", 0.0, 0.8, 0.25)
-    reflect_fade = st.slider("Fade Speed", 0.1, 1.0, 0.4, help="Higher = shorter, more professional reflection")
-    surface_blur = st.slider("Surface Polish", 0, 20, 2, help="0 is pure mirror, higher is brushed metal/satin")
-    
-    st.divider()
-    bg_color = st.color_picker("Floor & Background", "#080808")
+    st.subheader("Studio Style")
+    surface_type = st.selectbox("Surface Material", 
+                                ["Polished Black Marble", "Frosted Glass", "Soft Satin Fabric", "Natural Light Wood", "Minimalist Concrete"])
+    lighting_style = st.selectbox("Lighting Style", 
+                                  ["Softbox Side Lighting", "Moody Rim Light", "Bright Direct Sunlight", "Under-lit Glow"])
 
-# --- Executive Reflection Logic ---
-def create_executive_reflection(image, strength, fade, blur):
-    image = image.convert("RGBA")
-    w, h = image.size
-    
-    # 1. Prepare the Reflection Layer
-    reflection = ImageOps.flip(image)
-    # We only need the bottom portion for a professional look
-    reflect_h = int(h * fade)
-    reflection = reflection.crop((0, 0, w, reflect_h))
-    
-    # 2. Apply exponential fade mask
-    # This ensures the reflection 'dies out' naturally
-    mask = Image.new('L', (w, reflect_h), 0)
-    for y in range(reflect_h):
-        # Professional falloff math
-        alpha = int((strength * 255) * ((1 - y / reflect_h) ** 2))
-        ImageDraw.Draw(mask).line([(0, y), (w, y)], fill=alpha)
-    
-    reflection.putalpha(mask)
-    
-    # 3. Apply surface blur
-    if blur > 0:
-        reflection = reflection.filter(ImageFilter.GaussianBlur(radius=blur))
-    
-    # 4. Composite onto a luxury canvas
-    # We add extra height at the bottom for the floor
-    canvas = Image.new("RGBA", (w, h + reflect_h), (0,0,0,0))
-    canvas.paste(reflection, (0, h), reflection)
-    canvas.paste(image, (0, 0), image)
-    
-    return canvas
-
-# --- App Logic ---
+# --- AI Studio Logic ---
 if uploaded_file:
     col1, col2 = st.columns(2)
+    img = Image.open(uploaded_file)
     
     with col1:
-        st.subheader("Source Image")
-        img = Image.open(uploaded_file)
+        st.subheader("Raw Photo")
         st.image(img, use_container_width=True)
 
-    with st.spinner("Rendering Studio Environment..."):
-        # Precise Background Removal
-        no_bg = remove(img)
-        
-        # Apply Executive Reflection
-        final_output = create_executive_reflection(no_bg, reflect_strength, reflect_fade, surface_blur)
-        
-    with col2:
-        st.subheader("Executive Render")
-        # Create the studio background
-        # We use a solid dark color to provide the 'Luxury' contrast
-        bg = Image.new("RGBA", final_output.size, bg_color)
-        combined = Image.alpha_composite(bg, final_output)
-        
-        st.image(combined, use_container_width=True)
-        
-        # Download
-        buf = io.BytesIO()
-        final_output.save(buf, format="PNG")
-        st.download_button("💾 Download Studio PNG", buf.getvalue(), "baka_executive.png", "image/png", type="primary", use_container_width=True)
+    if st.button("🚀 Render Studio Scene", type="primary", use_container_width=True):
+        if not api_key:
+            st.error("API Key missing.")
+        else:
+            with st.spinner("Re-rendering product in professional studio..."):
+                try:
+                    client = genai.Client(api_key=api_key)
+                    
+                    # AI-driven instruction for natural shadows
+                    prompt = (
+                        f"Place this exact product on a {surface_type} surface. "
+                        f"Apply {lighting_style} to create realistic, soft, natural shadows at the base. "
+                        "The background should be a clean, slightly out-of-focus studio wall. "
+                        "Keep the product labels perfectly readable. Professional commercial photography quality."
+                    )
+                    
+                    # Re-rendering logic
+                    response = client.models.generate_content(
+                        model="gemini-2.5-flash-image",
+                        contents=[prompt, img.convert("RGB")],
+                        config=types.GenerateContentConfig(response_modalities=["IMAGE"])
+                    )
+
+                    if response.candidates and response.candidates[0].content.parts:
+                        for part in response.candidates[0].content.parts:
+                            if part.inline_data:
+                                result_img = Image.open(io.BytesIO(part.inline_data.data))
+                                with col2:
+                                    st.subheader("AI Studio Result")
+                                    st.image(result_img, use_container_width=True)
+                                    
+                                    # Download
+                                    buf = io.BytesIO()
+                                    result_img.save(buf, format="PNG")
+                                    st.download_button("💾 Download Studio Render", buf.getvalue(), "baka_studio.png", "image/png")
+                                    break
+                except Exception as e:
+                    st.error(f"Studio Error: {str(e)}")
 else:
-    st.info("Upload your product to generate a high-end luxury render.")
+    st.info("Upload your product photo to generate a luxury studio render.")
