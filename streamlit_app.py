@@ -1,80 +1,93 @@
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageFilter, ImageDraw
+from rembg import remove
 import io
-from google import genai
-from google.genai import types
+import numpy as np
 
-# --- Page Configuration ---
-st.set_page_config(page_title="Baka AI Studio Re-Renderer", layout="wide")
+# --- Page Config ---
+st.set_page_config(page_title="Baka Studio - Pro", layout="wide")
 
-st.title("📸 Baka AI Studio Re-Renderer")
-st.markdown("##### Transform raw photos into high-end luxury ads with natural AI lighting.")
+st.title("✂️ Baka Professional Studio Engine")
+st.markdown("##### High-precision extraction with Radial Gradient Shadows (Zero API Cost)")
 
 # --- Sidebar ---
 with st.sidebar:
-    st.header("Baka Digital")
-    # Using your secret key
-    if "GOOGLE_API_KEY" in st.secrets:
-        api_key = st.secrets["GOOGLE_API_KEY"]
-    else:
-        api_key = st.text_input("Enter Gemini API Key", type="password")
-        
-    st.divider()
+    st.header("Studio Controls")
     uploaded_file = st.file_uploader("Upload Product Photo", type=["png", "jpg", "jpeg", "webp"])
     
     st.divider()
-    st.subheader("Studio Style")
-    surface_type = st.selectbox("Surface Material", 
-                                ["Polished Black Marble", "Frosted Glass", "Soft Satin Fabric", "Natural Light Wood", "Minimalist Concrete"])
-    lighting_style = st.selectbox("Lighting Style", 
-                                  ["Softbox Side Lighting", "Moody Rim Light", "Bright Direct Sunlight", "Under-lit Glow"])
+    st.subheader("Shadow Engineering")
+    # Professional default values for perfume bottles
+    sh_opacity = st.slider("Shadow Intensity", 0, 255, 90)
+    sh_blur = st.slider("Edge Softness", 10, 150, 80)
+    sh_width = st.slider("Shadow Width", 0.5, 2.5, 1.4)
+    sh_offset = st.slider("Grounding (Y-Axis)", -10, 40, 5)
 
-# --- AI Studio Logic ---
+# --- Professional Radial Shadow Function ---
+def apply_pro_shadow(img, opacity, blur, width_factor, offset):
+    img = img.convert("RGBA")
+    w, h = img.size
+    
+    # Create a canvas large enough for the shadow spread
+    canvas_w = int(w * 1.5)
+    canvas_h = int(h * 1.5)
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    
+    # 1. Create a Radial Gradient Mask
+    # This is the secret to a professional look
+    shadow_w = int(w * width_factor)
+    shadow_h = int(h * 0.2) # Flattened for floor perspective
+    
+    # Generate the gradient ellipse
+    mask = Image.new('L', (shadow_w, shadow_h), 0)
+    draw = ImageDraw.Draw(mask)
+    
+    # Loop to create a smooth falloff from center to edge
+    for i in range(blur, 0, -1):
+        alpha = int(opacity * (1 - (i / blur)))
+        draw.ellipse([i, i, shadow_w - i, shadow_h - i], fill=alpha)
+    
+    # Soften the edges further with Gaussian blur
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=blur/2))
+    
+    # Create the actual shadow layer
+    shadow_layer = Image.new("RGBA", (shadow_w, shadow_h), (0, 0, 0, 255))
+    shadow_layer.putalpha(mask)
+    
+    # --- COMPOSITING ---
+    # Position shadow at the base center
+    shadow_x = (canvas_w - shadow_w) // 2
+    shadow_y = h + offset - (shadow_h // 2)
+    canvas.paste(shadow_layer, (shadow_x, shadow_y), shadow_layer)
+    
+    # Position product in the center
+    product_x = (canvas_w - w) // 2
+    canvas.paste(img, (product_x, 0), img)
+    
+    return canvas.crop(canvas.getbbox()) # Trim excess space
+
+# --- Main Logic ---
 if uploaded_file:
     col1, col2 = st.columns(2)
-    img = Image.open(uploaded_file)
+    input_image = Image.open(uploaded_file)
     
     with col1:
-        st.subheader("Raw Photo")
-        st.image(img, use_container_width=True)
+        st.subheader("Original")
+        st.image(input_image, use_container_width=True)
 
-    if st.button("🚀 Render Studio Scene", type="primary", use_container_width=True):
-        if not api_key:
-            st.error("API Key missing.")
-        else:
-            with st.spinner("Re-rendering product in professional studio..."):
-                try:
-                    client = genai.Client(api_key=api_key)
-                    
-                    # AI-driven instruction for natural shadows
-                    prompt = (
-                        f"Place this exact product on a {surface_type} surface. "
-                        f"Apply {lighting_style} to create realistic, soft, natural shadows at the base. "
-                        "The background should be a clean, slightly out-of-focus studio wall. "
-                        "Keep the product labels perfectly readable. Professional commercial photography quality."
-                    )
-                    
-                    # Re-rendering logic
-                    response = client.models.generate_content(
-                        model="gemini-2.5-flash-image",
-                        contents=[prompt, img.convert("RGB")],
-                        config=types.GenerateContentConfig(response_modalities=["IMAGE"])
-                    )
-
-                    if response.candidates and response.candidates[0].content.parts:
-                        for part in response.candidates[0].content.parts:
-                            if part.inline_data:
-                                result_img = Image.open(io.BytesIO(part.inline_data.data))
-                                with col2:
-                                    st.subheader("AI Studio Result")
-                                    st.image(result_img, use_container_width=True)
-                                    
-                                    # Download
-                                    buf = io.BytesIO()
-                                    result_img.save(buf, format="PNG")
-                                    st.download_button("💾 Download Studio Render", buf.getvalue(), "baka_studio.png", "image/png")
-                                    break
-                except Exception as e:
-                    st.error(f"Studio Error: {str(e)}")
+    with st.spinner("Extracting subject and rendering shadow..."):
+        # Step 1: Remove BG (Free, uses server CPU)
+        no_bg = remove(input_image)
+        
+        # Step 2: Apply the Pro Radial Shadow
+        final_result = apply_pro_shadow(no_bg, sh_opacity, sh_blur, sh_width, sh_offset)
+        
+    with col2:
+        st.subheader("Studio Final")
+        st.image(final_result, use_container_width=True)
+        
+        buf = io.BytesIO()
+        final_result.save(buf, format="PNG")
+        st.download_button("💾 Download Studio PNG", buf.getvalue(), "baka_pro.png", "image/png", type="primary", use_container_width=True)
 else:
-    st.info("Upload your product photo to generate a luxury studio render.")
+    st.info("Upload a product photo to begin.")
