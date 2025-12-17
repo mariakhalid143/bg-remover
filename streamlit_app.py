@@ -1,14 +1,13 @@
 import streamlit as st
-from PIL import Image, ImageFilter, ImageDraw
+from PIL import Image, ImageFilter, ImageDraw, ImageOps
 from rembg import remove
 import io
-import numpy as np
 
 # --- Page Config ---
-st.set_page_config(page_title="Baka Studio - Pro", layout="wide")
+st.set_page_config(page_title="Baka Studio - Zero Cost", layout="wide")
 
-st.title("✂️ Baka Professional Studio Engine")
-st.markdown("##### High-precision extraction with Radial Gradient Shadows (Zero API Cost)")
+st.title("💎 Baka High-End Studio Engine")
+st.markdown("##### High-precision subject grounding with multi-stage contact shadows")
 
 # --- Sidebar ---
 with st.sidebar:
@@ -17,56 +16,62 @@ with st.sidebar:
     
     st.divider()
     st.subheader("Shadow Engineering")
-    # Professional default values for perfume bottles
-    sh_opacity = st.slider("Shadow Intensity", 0, 255, 90)
-    sh_blur = st.slider("Edge Softness", 10, 150, 80)
-    sh_width = st.slider("Shadow Width", 0.5, 2.5, 1.4)
-    sh_offset = st.slider("Grounding (Y-Axis)", -10, 40, 5)
+    sh_intensity = st.slider("Shadow Depth", 0.0, 1.0, 0.5, 0.05, help="Darkness of the contact point")
+    sh_spread = st.slider("Shadow Spread", 10, 200, 100, help="How far the soft shadow travels")
+    sh_grounding = st.slider("Grounding Position", -20, 20, 2, help="Fine-tune the bottle's touch point")
 
-# --- Professional Radial Shadow Function ---
-def apply_pro_shadow(img, opacity, blur, width_factor, offset):
+# --- Multi-Stage Shadow Function ---
+def create_pro_grounding(img, intensity, spread, offset):
     img = img.convert("RGBA")
     w, h = img.size
     
-    # Create a canvas large enough for the shadow spread
-    canvas_w = int(w * 1.5)
-    canvas_h = int(h * 1.5)
+    # 1. Create a canvas large enough for a spreading shadow
+    canvas_w = int(w * 1.8)
+    canvas_h = int(h * 1.4)
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     
-    # 1. Create a Radial Gradient Mask
-    # This is the secret to a professional look
-    shadow_w = int(w * width_factor)
-    shadow_h = int(h * 0.2) # Flattened for floor perspective
+    # 2. Create the Contact Shadow (Occlusion)
+    # This is the dark sliver that 'grounds' the bottle
+    occ_w = int(w * 0.95)
+    occ_h = int(h * 0.04)
+    occlusion = Image.new('L', (occ_w, occ_h), 0)
+    draw_occ = ImageDraw.Draw(occlusion)
+    draw_occ.ellipse([0, 0, occ_w, occ_h], fill=int(255 * intensity))
+    occlusion = occlusion.filter(ImageFilter.GaussianBlur(radius=2))
     
-    # Generate the gradient ellipse
-    mask = Image.new('L', (shadow_w, shadow_h), 0)
-    draw = ImageDraw.Draw(mask)
+    # 3. Create the Soft Ambient Shadow (The natural fade)
+    amb_w = int(w * 1.3)
+    amb_h = int(h * 0.15)
+    ambient = Image.new('L', (amb_w, amb_h), 0)
+    draw_amb = ImageDraw.Draw(ambient)
     
-    # Loop to create a smooth falloff from center to edge
-    for i in range(blur, 0, -1):
-        alpha = int(opacity * (1 - (i / blur)))
-        draw.ellipse([i, i, shadow_w - i, shadow_h - i], fill=alpha)
+    # Draw a multi-layered gradient
+    for i in range(spread, 0, -2):
+        alpha = int((intensity * 120) * (1 - (i / spread)))
+        draw_amb.ellipse([i, i//4, amb_w - i, amb_h - i//4], fill=alpha)
     
-    # Soften the edges further with Gaussian blur
-    mask = mask.filter(ImageFilter.GaussianBlur(radius=blur/2))
-    
-    # Create the actual shadow layer
-    shadow_layer = Image.new("RGBA", (shadow_w, shadow_h), (0, 0, 0, 255))
-    shadow_layer.putalpha(mask)
+    ambient = ambient.filter(ImageFilter.GaussianBlur(radius=spread/4))
     
     # --- COMPOSITING ---
-    # Position shadow at the base center
-    shadow_x = (canvas_w - shadow_w) // 2
-    shadow_y = h + offset - (shadow_h // 2)
-    canvas.paste(shadow_layer, (shadow_x, shadow_y), shadow_layer)
+    # Center points
+    center_x = canvas_w // 2
     
-    # Position product in the center
-    product_x = (canvas_w - w) // 2
-    canvas.paste(img, (product_x, 0), img)
+    # Paste Ambient Shadow
+    amb_layer = Image.new("RGBA", (amb_w, amb_h), (0,0,0,255))
+    amb_layer.putalpha(ambient)
+    canvas.paste(amb_layer, (center_x - amb_w//2, h + offset - amb_h//3), amb_layer)
     
-    return canvas.crop(canvas.getbbox()) # Trim excess space
+    # Paste Occlusion Shadow (The 'Dark Anchor')
+    occ_layer = Image.new("RGBA", (occ_w, occ_h), (0,0,0,255))
+    occ_layer.putalpha(occlusion)
+    canvas.paste(occ_layer, (center_x - occ_w//2, h + offset - occ_h//2), occ_layer)
+    
+    # Paste Product on top
+    canvas.paste(img, (center_x - w//2, 0), img)
+    
+    return canvas.crop(canvas.getbbox())
 
-# --- Main Logic ---
+# --- Main App Logic ---
 if uploaded_file:
     col1, col2 = st.columns(2)
     input_image = Image.open(uploaded_file)
@@ -75,19 +80,19 @@ if uploaded_file:
         st.subheader("Original")
         st.image(input_image, use_container_width=True)
 
-    with st.spinner("Extracting subject and rendering shadow..."):
-        # Step 1: Remove BG (Free, uses server CPU)
+    with st.spinner("Rendering studio environment..."):
+        # Step 1: High-precision removal
         no_bg = remove(input_image)
         
-        # Step 2: Apply the Pro Radial Shadow
-        final_result = apply_pro_shadow(no_bg, sh_opacity, sh_blur, sh_width, sh_offset)
+        # Step 2: Multi-stage grounding shadow
+        final_result = create_pro_grounding(no_bg, sh_intensity, sh_spread, sh_grounding)
         
     with col2:
-        st.subheader("Studio Final")
+        st.subheader("Studio Quality Output")
         st.image(final_result, use_container_width=True)
         
         buf = io.BytesIO()
         final_result.save(buf, format="PNG")
-        st.download_button("💾 Download Studio PNG", buf.getvalue(), "baka_pro.png", "image/png", type="primary", use_container_width=True)
+        st.download_button("💾 Download Studio PNG", buf.getvalue(), "baka_pro_studio.png", "image/png", type="primary", use_container_width=True)
 else:
-    st.info("Upload a product photo to begin.")
+    st.info("Upload your product photo to activate the High-End Shadow Engine.")
